@@ -1,0 +1,170 @@
+namespace onlinekyc.DTOs
+{
+    public class UserDto
+    {
+        public int UserId { get; set; }
+        public string Username { get; set; }
+        public string Role { get; set; }
+        
+    }
+}
+
+
+
+----------------------------------------------
+
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using onlinekyc.DTOs;
+using onlinekyc.Services;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+
+namespace onlinekyc.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    [Authorize(Roles = "Admin")] // Only Admin can manage customers
+    public class CustomerController : ControllerBase
+    {
+        private readonly IUserService _userService;
+
+        public CustomerController(IUserService userService)
+        {
+            _userService = userService;
+        }
+
+        // API to get all customers
+        [HttpGet("all")]
+        public async Task<IActionResult> GetAllCustomers()
+        {
+            var customers = await _userService.GetAllUsersByRoleAsync("Customer");
+            var customerDtos = customers.Select(c => new UserDto
+            {
+                UserId = c.UserId,
+                Username = c.Username,
+                Role = c.Role
+                // Map other fields if needed
+            }).ToList();
+            return Ok(customerDtos);
+        }
+
+        // API to get a customer by ID
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetCustomerById(int id)
+        {
+            var customer = await _userService.GetUserByIdAsync(id);
+            if (customer == null || customer.Role != "Customer")
+            {
+                return NotFound("Customer not found.");
+            }
+
+            var customerDto = new UserDto
+            {
+                UserId = customer.UserId,
+                Username = customer.Username,
+                Role = customer.Role
+                // Map other fields if needed
+            };
+
+            return Ok(customerDto);
+        }
+
+        // API to edit a customer
+        [HttpPut("edit/{id}")]
+        public async Task<IActionResult> EditCustomer(int id, [FromBody] UserDto updatedCustomerDto)
+        {
+            if (id != updatedCustomerDto.UserId)
+            {
+                return BadRequest("User ID mismatch.");
+            }
+
+            var existingCustomer = await _userService.GetUserByIdAsync(id);
+            if (existingCustomer == null || existingCustomer.Role != "Customer")
+            {
+                return NotFound("Customer not found.");
+            }
+
+            // Map DTO to entity
+            existingCustomer.Username = updatedCustomerDto.Username;
+            // Update other fields if needed
+
+            var result = await _userService.UpdateUserAsync(existingCustomer);
+            if (!result)
+            {
+                return StatusCode(500, "An error occurred while updating the customer.");
+            }
+
+            return Ok("Customer updated successfully.");
+        }
+    }
+}
+
+
+
+
+---------------------------------------------------
+using onlinekyc.DTOs;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+public interface IUserService
+{
+    Task<User> GetUserByIdAsync(int id);
+    Task<List<User>> GetAllUsersByRoleAsync(string role);
+    Task<bool> UpdateUserAsync(User user);
+}
+
+
+
+-------------------------------------------------------------
+
+
+
+using onlinekyc.Models;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+
+public class UserService : IUserService
+{
+    private readonly KYCContext _context;
+
+    public UserService(KYCContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<User> GetUserByIdAsync(int id)
+    {
+        return await _context.Users.SingleOrDefaultAsync(u => u.UserId == id);
+    }
+
+    public async Task<List<User>> GetAllUsersByRoleAsync(string role)
+    {
+        return await _context.Users.Where(u => u.Role == role).ToListAsync();
+    }
+
+    public async Task<bool> UpdateUserAsync(User user)
+    {
+        _context.Users.Update(user);
+        return await _context.SaveChangesAsync() > 0;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
