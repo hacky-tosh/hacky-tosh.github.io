@@ -1,0 +1,99 @@
+public class TradeServiceTest {
+
+    private TradeService tradeService;
+    private List<Trade> trades;
+    private List<Holiday> holidays;
+    private List<LimitOrderConfigurationEntity> countryData;
+    private Requester requester;
+    private EasyRandom random;
+
+    @Before
+    public void setUp() {
+        random = new EasyRandom(new EasyRandomParameters()
+                .seed(now().getMillis())
+                .randomize(String.class, () -> randomAlphabetic(12)));
+        tradeService = new TradeService(); // Replace with actual service class if different
+        trades = random.objects(Trade.class, 5).collect(Collectors.toList());
+        holidays = random.objects(Holiday.class, 5).collect(Collectors.toList());
+        countryData = random.objects(LimitOrderConfigurationEntity.class, 5).collect(Collectors.toList());
+        requester = random.nextObject(Requester.class);
+    }
+
+    @Test
+    public void shouldSetValidUntilForLimitOrderWithConfiguredCountry() {
+        // Given
+        trades.forEach(trade -> {
+            trade.setStatus(TradeStatus.APPROVED);
+            trade.setIsLimitOrder(true);
+            trade.setRequester(requester);
+        });
+        requester.setCountry(countryData.get(0).getCountry());
+        countryData.get(0).setDays("5");
+
+        // When
+        tradeService.setValidUntil(holidays, countryData);
+
+        // Then
+        trades.forEach(trade -> {
+            if (Boolean.TRUE.equals(trade.getIsLimitOrder())) {
+                assertThat(trade.getValidUntil())
+                        .isNotNull()
+                        .isEqualTo(LocalDate.now(ZoneId.of(getTimeZoneId(requester.getCountry())))
+                                .plusDays(5)
+                                .atTime(23, 59, 59));
+            }
+        });
+    }
+
+    @Test
+    public void shouldSetValidUntilForLimitOrderWithoutConfiguredCountry() {
+        // Given
+        trades.forEach(trade -> {
+            trade.setStatus(TradeStatus.APPROVED);
+            trade.setIsLimitOrder(true);
+            trade.setRequester(requester);
+        });
+        requester.setCountry("NonConfiguredCountry");
+
+        // When
+        tradeService.setValidUntil(holidays, countryData);
+
+        // Then
+        trades.forEach(trade -> {
+            if (Boolean.TRUE.equals(trade.getIsLimitOrder())) {
+                assertThat(trade.getValidUntil()).isEqualTo(addBusinessday(trade.getBusinessDays(), holidays));
+            }
+        });
+    }
+
+    @Test
+    public void shouldSetValidUntilForNonLimitOrder() {
+        // Given
+        trades.forEach(trade -> {
+            trade.setStatus(TradeStatus.APPROVED);
+            trade.setIsLimitOrder(false);
+        });
+
+        // When
+        tradeService.setValidUntil(holidays, countryData);
+
+        // Then
+        trades.forEach(trade -> {
+            assertThat(trade.getValidUntil()).isEqualTo(addBusinessday(trade.getBusinessDays(), holidays));
+        });
+    }
+
+    @Test
+    public void shouldNotSetValidUntilForNonApprovedTrades() {
+        // Given
+        trades.forEach(trade -> trade.setStatus(TradeStatus.REJECTED));
+
+        // When
+        tradeService.setValidUntil(holidays, countryData);
+
+        // Then
+        trades.forEach(trade -> {
+            assertThat(trade.getValidUntil()).isNull();
+        });
+    }
+}
