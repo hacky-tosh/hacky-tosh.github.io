@@ -1,3 +1,33 @@
+
+@Test
+public void shouldSetValidUntilForLimitOrders() {
+    // Mock the system date to ensure deterministic behavior
+    Clock fixedClock = Clock.fixed(Instant.parse("2024-12-06T00:00:00Z"), ZoneId.of("UTC"));
+    LocalDate.now(ZoneId.of("UTC")).withClock(fixedClock);
+
+    // Given
+    trades.forEach(trade -> {
+        trade.setStatus(TradeStatus.APPROVED);
+        trade.setIsLimitOrder(true);
+    });
+    requester.setCountry("US");
+    countryData = List.of(new LimitOrderConfigurationEntity("US", "5"));
+
+    // When
+    preApproval.setValidUntil(holidays, countryData);
+
+    // Then
+    for (Trade trade : trades) {
+        if (Boolean.TRUE.equals(trade.getIsLimitOrder())) {
+            assertThat(trade.getValidUntil())
+                .isEqualTo(LocalDate.of(2024, 12, 11).atTime(23, 59, 59));
+        }
+    }
+}
+
+
+
+
 public class TradeServiceTest {
 
     private TradeService tradeService;
