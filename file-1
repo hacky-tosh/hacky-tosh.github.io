@@ -1,4 +1,39 @@
 @Test
+public void shouldSetValidUntilWhenCountryIsPresentInDb() {
+    // Given
+    Trade trade = new Trade();
+    trade.setStatus(TradeStatus.APPROVED);
+    trade.setIsLimitOrder(true); // Ensure it's a limit order
+    trades = Collections.singletonList(trade);
+
+    LimitOrderConfigurationEntity configEntity = new LimitOrderConfigurationEntity();
+    configEntity.setCountry("US"); // Matching country
+    configEntity.setDays("5"); // Number of days from DB
+    countryData = Collections.singletonList(configEntity);
+
+    holidays = Collections.emptyList(); // No holidays for this test
+
+    // Mock the current date to ensure consistency
+    LocalDate fixedDate = LocalDate.of(2024, 12, 9);
+    try (MockedStatic<LocalDate> mockedLocalDate = mockStatic(LocalDate.class)) {
+        mockedLocalDate.when(() -> LocalDate.now(any(ZoneId.class))).thenReturn(fixedDate);
+
+        // Mock the requester and timezone behavior
+        when(requester.getCountry()).thenReturn("US");
+        when(getTimeZoneId("US")).thenReturn("America/New_York");
+
+        // When
+        preApproval.setValidUntil(holidays, countryData);
+
+        // Then
+        LocalDateTime expectedValidUntil = fixedDate.plusDays(5) // Add extra days from config
+                .atTime(23, 59, 59);
+        assertThat(trade.getValidUntil()).isEqualTo(expectedValidUntil);
+    }
+}
+
+
+@Test
 public void shouldSetValidUntilForApprovedLimitOrderWithCountryInDb() {
     // Given
     Trade approvedTrade = random.nextObject(Trade.class);
