@@ -1,0 +1,76 @@
+@Test
+public void shouldSetValidUntilForApprovedLimitOrderWithCountryInDb() {
+    // Given
+    Trade approvedTrade = random.nextObject(Trade.class);
+    approvedTrade.setStatus(TradeStatus.APPROVED);
+    approvedTrade.setIsLimitOrder(true);
+    trades = Collections.singletonList(approvedTrade);
+
+    LimitOrderConfigurationEntity configEntity = random.nextObject(LimitOrderConfigurationEntity.class);
+    configEntity.setCountry(requester.getCountry());
+    configEntity.setDays("5");
+    countryData = Collections.singletonList(configEntity);
+
+    // When
+    preApproval.setValidUntil(holidays, countryData);
+
+    // Then
+    LocalDateTime expectedValidUntil = LocalDate.now(ZoneId.of(getTimeZoneId(requester.getCountry())))
+            .plusDays(5)
+            .atTime(23, 59, 59);
+    assertThat(approvedTrade.getValidUntil()).isEqualTo(expectedValidUntil);
+}
+
+@Test
+public void shouldSetValidUntilForApprovedLimitOrderWithCountryNotInDb() {
+    // Given
+    Trade approvedTrade = random.nextObject(Trade.class);
+    approvedTrade.setStatus(TradeStatus.APPROVED);
+    approvedTrade.setIsLimitOrder(true);
+    trades = Collections.singletonList(approvedTrade);
+
+    countryData = Collections.emptyList(); // No country data in DB
+
+    // Mock holidays
+    holidays = random.objects(Holiday.class, 3).collect(Collectors.toList());
+
+    // When
+    preApproval.setValidUntil(holidays, countryData);
+
+    // Then
+    LocalDateTime expectedValidUntil = preApproval.addBusinessday(approvedTrade.getBusinessDays(), holidays);
+    assertThat(approvedTrade.getValidUntil()).isEqualTo(expectedValidUntil);
+}
+
+@Test
+public void shouldSetValidUntilForApprovedNonLimitOrder() {
+    // Given
+    Trade approvedTrade = random.nextObject(Trade.class);
+    approvedTrade.setStatus(TradeStatus.APPROVED);
+    approvedTrade.setIsLimitOrder(false);
+    trades = Collections.singletonList(approvedTrade);
+
+    // Mock holidays
+    holidays = random.objects(Holiday.class, 3).collect(Collectors.toList());
+
+    // When
+    preApproval.setValidUntil(holidays, countryData);
+
+    // Then
+    LocalDateTime expectedValidUntil = preApproval.addBusinessday(approvedTrade.getBusinessDays(), holidays);
+    assertThat(approvedTrade.getValidUntil()).isEqualTo(expectedValidUntil);
+}
+
+@Test
+public void shouldNotSetValidUntilForNonApprovedTrade() {
+    // Given
+    Trade nonApprovedTrade = random.nextObject(Trade.class);
+    nonApprovedTrade.setStatus(TradeStatus.PENDING); // Not approved
+    trades = Collections.singletonList(nonApprovedTrade);
+
+    // When
+    preApproval.setValidUntil(holidays, countryData);
+
+    // Then
+    assertThat(nonApprovedTrade.getValidUntil()).isNull();
+}
