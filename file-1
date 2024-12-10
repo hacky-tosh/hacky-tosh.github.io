@@ -1,4 +1,27 @@
+@Test
+public void shouldMapNestedTradeReviewManagerAndDesignatedSupervisor() throws JsonProcessingException {
+    // Arrange
+    ObjectMapper objectMapper = new ObjectMapper();
+    User mockUser = random.nextObject(User.class);
 
+    // Set nested objects for testing
+    User tradeReviewManager = random.nextObject(User.class);
+    User designatedSupervisor = random.nextObject(User.class);
+    mockUser.setTradeReviewManager(tradeReviewManager);
+    mockUser.setDesignatedSupervisor(designatedSupervisor);
+
+    // Serialize the mock user to JSON
+    String jsonResponse = objectMapper.writeValueAsString(mockUser);
+
+    // Act
+    Optional<User> actualUser = repository.mapApiResponseToUser(jsonResponse);
+
+    // Assert
+    assertThat(actualUser).isPresent();
+    User resultUser = actualUser.get();
+    assertThat(resultUser.getTradeReviewManager()).isEqualTo(tradeReviewManager);
+    assertThat(resultUser.getDesignatedSupervisor()).isEqualTo(designatedSupervisor);
+}
 @Test
 public void shouldMapNestedUsersWhenTradeReviewManagerAndDesignatedSupervisorAreNotNull() throws Exception {
     // Arrange
