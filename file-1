@@ -1,3 +1,49 @@
+
+@Test
+public void shouldMapNestedUsersWhenTradeReviewManagerAndDesignatedSupervisorAreNotNull() throws Exception {
+    // Arrange
+    User tradeReviewManager = random.nextObject(User.class);
+    User designatedSupervisor = random.nextObject(User.class);
+
+    User inputUser = random.nextObject(User.class);
+    inputUser.setTradeReviewManager(tradeReviewManager);
+    inputUser.setDesignatedSupervisor(designatedSupervisor);
+
+    ObjectMapper objectMapper = new ObjectMapper();
+    String jsonResponse = objectMapper.writeValueAsString(inputUser);
+
+    // Mock mapNestedUser behavior if needed
+    User mappedTradeReviewManager = random.nextObject(User.class);
+    User mappedDesignatedSupervisor = random.nextObject(User.class);
+
+    Repository spyRepository = spy(repository);
+    doReturn(mappedTradeReviewManager).when(spyRepository).mapNestedUser(tradeReviewManager);
+    doReturn(mappedDesignatedSupervisor).when(spyRepository).mapNestedUser(designatedSupervisor);
+
+    // Act
+    Method mapApiResponseToUserMethod = spyRepository.getClass().getDeclaredMethod("mapApiResponseToUser", String.class);
+    mapApiResponseToUserMethod.setAccessible(true);
+    Optional<User> result = (Optional<User>) mapApiResponseToUserMethod.invoke(spyRepository, jsonResponse);
+
+    // Assert
+    assertThat(result).isPresent();
+    User resultUser = result.get();
+
+    // Ensure the nested users were mapped correctly
+    assertThat(resultUser.getTradeReviewManager()).isEqualTo(mappedTradeReviewManager);
+    assertThat(resultUser.getDesignatedSupervisor()).isEqualTo(mappedDesignatedSupervisor);
+
+    // Verify mapNestedUser was called for both fields
+    verify(spyRepository).mapNestedUser(tradeReviewManager);
+    verify(spyRepository).mapNestedUser(designatedSupervisor);
+}
+
+
+
+
+
+
+
 @Test
 public void shouldSetValidUntilWhenCountryIsPresentInDb() {
     // Given
