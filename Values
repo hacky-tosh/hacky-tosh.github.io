@@ -1,0 +1,109 @@
+// Add this function to check value match and set acceptance accordingly
+private checkValueMatch(formGroup: FormGroup, index: number): void {
+  const requestValue = formGroup.get('value').value;
+  const executedValue = formGroup.get('capturedValue').value;
+  
+  // Skip if no captured value has been entered yet
+  if (executedValue === null || executedValue === undefined) {
+    return;
+  }
+  
+  let match = false;
+  
+  switch (formGroup.get('type').value) {
+    case 'securityCodeType':
+      match = executedValue && requestValue === executedValue.name;
+      break;
+    case 'date':
+      if (typeof executedValue === 'string') {
+        match = this.isTradeDateBetweenFinalAndValidUntilDate(executedValue);
+      } else if (executedValue instanceof Date) {
+        match = this.isTradeDateWithTimeBetweenFinalAndValidUntilDate(executedValue);
+      }
+      break;
+    default:
+      // For other types (text, number, securityCode, operation)
+      match = String(requestValue) === String(executedValue);
+  }
+  
+  // If values don't match, automatically set to NO
+  if (!match) {
+    this.rejectAttribute(index);
+  } else {
+    this.acceptAttribute(index);
+  }
+}
+
+// Modify the form initialization to add value change listeners
+ngOnInit(): void {
+  this.initStatementDocumentList();
+  this.operation = new ReconciliationAttribute('OPERATION', this.trade.operation, false, null, TransactionDiscrepancyAcceptance.YES, "operation");
+  this.quantity = new ReconciliationAttribute('QUANTITY', this.trade.quantity, false, null, TransactionDiscrepancyAcceptance.YES, "number");
+  this.tradeDate = new ReconciliationAttribute('TRADE_DATE', this.dateWithLocalTimeZone.transformWtihTime(this.trade.finalDecisionDate).concat(' / ')
+  .concat(this.dateWithLocalTimeZone.transformWtihTime(this.trade.validUntil)), false, null, TransactionDiscrepancyAcceptance.YES, "date");
+  this.companyName = new ReconciliationAttribute('COMPANY_NAME', this.trade.security.companyName, false, null, TransactionDiscrepancyAcceptance.YES, "text");
+  this.securityType = new ReconciliationAttribute('SECURITY_CODE_TYPE', this.trade.security.code, false, null, TransactionDiscrepancyAcceptance.YES, "securityCodeType");
+  this.securityCode = new ReconciliationAttribute('SECURITY_CODE', this.trade.security.securityCode, false, null, TransactionDiscrepancyAcceptance.YES, "securityCode");
+  this.initSecurityCodeType();
+  this.form = this.getFormGroup();
+  
+  // Add value change listeners to auto-check matches
+  this.addValueChangeListeners();
+}
+
+// Add this method to subscribe to value changes
+private addValueChangeListeners(): void {
+  // Wait for next tick to ensure form is fully initialized
+  setTimeout(() => {
+    for (let i = 0; i < this.reconciliationAttributes.length; i++) {
+      const formGroup = this.reconciliationAttributes.at(i) as FormGroup;
+      formGroup.get('capturedValue').valueChanges
+        .pipe(takeUntil(this.unsubscribe))
+        .subscribe(() => {
+          this.checkValueMatch(formGroup, i);
+        });
+    }
+  });
+}
+
+// Modify onChangeCodeType to include auto-checking
+onChangeCodeType(): void {
+  const securityCodeTypeValue: FormControl = this.getCapturedValueAsFormControl('SECURITY_CODE_TYPE');
+  const securityCodeValue: FormControl = this.getCapturedValueAsFormControl('SECURITY_CODE');
+  if (!this.getCapturedValue('SECURITY_CODE_TYPE') && !this.getCapturedValue('SECURITY_CODE')) {
+    securityCodeTypeValue.setValidators([]);
+    securityCodeValue.setValidators([]);
+    securityCodeTypeValue.updateValueAndValidity();
+    securityCodeValue.updateValueAndValidity();
+  } else {
+    securityCodeTypeValue.setValidators([Validators.required]);
+    securityCodeValue.setValidators([Validators.required]);
+    securityCodeTypeValue.updateValueAndValidity();
+    securityCodeValue.updateValueAndValidity();
+  }
+  
+  // Check matches after type change
+  const securityTypeIndex = this.reconciliationAttributes.controls
+    .findIndex(control => control.get('attribute').value === 'SECURITY_CODE_TYPE');
+  const securityCodeIndex = this.reconciliationAttributes.controls
+    .findIndex(control => control.get('attribute').value === 'SECURITY_CODE');
+    
+  if (securityTypeIndex >= 0) {
+    this.checkValueMatch(this.reconciliationAttributes.at(securityTypeIndex) as FormGroup, securityTypeIndex);
+  }
+  if (securityCodeIndex >= 0) {
+    this.checkValueMatch(this.reconciliationAttributes.at(securityCodeIndex) as FormGroup, securityCodeIndex);
+  }
+}
+
+// Modify onTradeDateChange to use the checkValueMatch function
+onTradeDateChange(reconciliationAttribute: FormGroup, index: number): void {
+  const tradeDate: Date = reconciliationAttribute.get('capturedValue').value;
+  if (tradeDate) {
+    if (this.executionTimeHour.value !== null && this.executionTimeMinutes.value !== null) {
+      tradeDate.setMinutes(this.executionTimeMinutes.value);
+      tradeDate.setHours(this.executionTimeHour.value);
+    }
+    this.checkValueMatch(reconciliationAttribute, index);
+  }
+}
