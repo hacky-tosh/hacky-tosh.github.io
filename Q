@@ -1,0 +1,108 @@
+@Test
+public void shouldFindBrokerFeedPositionInformationForAnnualReport() throws Exception {
+    // Given
+    int year = 1000 * random.nextInt(5) + 2000;
+    LocalDate positionDate = LocalDate.of(year, 12, 31);
+    if (positionDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
+        positionDate = positionDate.minusDays(1);
+    }
+    if (positionDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        positionDate = positionDate.minusDays(2);
+    }
+    String ggi = random.nextObject(String.class);
+    String country = padUser.getCountry();
+    List<Holiday> holidays = random.objects(Holiday.class, 5).collect(toList());
+    List<BrokerPositionInformationEntity> entities = random.objects(BrokerPositionInformationEntity.class, 5).collect(Collectors.toList());
+    
+    // Set consistent account numbers and broker codes for the entities using reflection
+    for (int i = 0; i < entities.size(); i++) {
+        BrokerPositionInformationEntity entity = entities.get(i);
+        setFieldWithReflection(entity, "accountNumber", "ACC00" + i);
+        setFieldWithReflection(entity, "brokerCode", "BRK00" + i);
+    }
+    
+    List<BrokerPositionInformation> modelList = mapper.toModels(entities);
+    
+    // Create test AccountInfo objects
+    AccountInfo regularAccount = mock(AccountInfo.class);
+    when(regularAccount.getType()).thenReturn("REGULAR_ACCOUNT");
+    when(regularAccount.getNumber()).thenReturn("ACC000");
+    when(regularAccount.getBrokerCode()).thenReturn("BRK000");
+    
+    AccountInfo managedAccount = mock(AccountInfo.class);
+    when(managedAccount.getType()).thenReturn("MANAGED_ACCOUNT");
+    when(managedAccount.getNumber()).thenReturn("ACC001");
+    when(managedAccount.getBrokerCode()).thenReturn("BRK001");
+    
+    // Setup mocks
+    when(holidayClientRepository.getAllHolidaysByCountry(country)).thenReturn(holidays);
+    
+    // Use reflection to call the adjustForHolidays method
+    Method adjustMethod = findMethod(repository.getClass(), "adjustForHolidays", LocalDate.class, List.class);
+    adjustMethod.setAccessible(true);
+    LocalDate adjustedDate = (LocalDate) adjustMethod.invoke(repository, positionDate, holidays);
+    
+    when(repository.findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate)).thenReturn(entities);
+    when(mapper.toModels(entities)).thenReturn(modelList);
+    
+    // Mock account info repository responses
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode("ACC000", "BRK000"))
+        .thenReturn(Optional.of(regularAccount));
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode("ACC001", "BRK001"))
+        .thenReturn(Optional.of(managedAccount));
+    
+    // When
+    List<BrokerPositionInformation> output = repository.getBrokerPositionsForAnnualHoldings(ggi, year, country);
+    
+    // Then
+    // The managed account should be filtered out
+    assertThat(output.stream()
+        .filter(p -> "ACC001".equals(p.getAccountNumber()) && "BRK001".equals(p.getBrokerCode()))
+        .collect(Collectors.toList()))
+        .isEmpty();
+    
+    // Regular account should still be present
+    assertThat(output.stream()
+        .filter(p -> "ACC000".equals(p.getAccountNumber()) && "BRK000".equals(p.getBrokerCode()))
+        .collect(Collectors.toList()))
+        .isNotEmpty();
+    
+    // Verify method calls
+    verify(holidayClientRepository).getAllHolidaysByCountry(country);
+    verify(repository).findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate);
+    verify(accountInfoClientRepository, atLeastOnce()).searchByAccountNumberAndBrokerCode("ACC000", "BRK000");
+    verify(accountInfoClientRepository, atLeastOnce()).searchByAccountNumberAndBrokerCode("ACC001", "BRK001");
+}
+
+// Helper method to set field value using reflection
+private void setFieldWithReflection(Object target, String fieldName, Object value) throws Exception {
+    Field field = findField(target.getClass(), fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
+}
+
+// Helper method to find a field in a class or its superclasses
+private Field findField(Class<?> clazz, String fieldName) {
+    Class<?> currentClass = clazz;
+    while (currentClass != null) {
+        try {
+            return currentClass.getDeclaredField(fieldName);
+        } catch (NoSuchFieldException e) {
+            currentClass = currentClass.getSuperclass();
+        }
+    }
+    throw new RuntimeException("Field " + fieldName + " not found in " + clazz.getName());
+}
+
+// Helper method to find a method in a class or its superclasses
+private Method findMethod(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
+    Class<?> currentClass = clazz;
+    while (currentClass != null) {
+        try {
+            return currentClass.getDeclaredMethod(methodName, parameterTypes);
+        } catch (NoSuchMethodException e) {
+            currentClass = currentClass.getSuperclass();
+        }
+    }
+    throw new RuntimeException("Method " + methodName + " not found in " + clazz.getName());
+}
