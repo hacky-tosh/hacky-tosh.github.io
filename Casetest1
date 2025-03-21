@@ -1,0 +1,72 @@
+@Test
+public void shouldFindBrokerFeedPositionInformationForAnnualReport() {
+    // Given
+    int year = 1000 * random.nextInt(5) + 2000;
+    LocalDate positionDate = LocalDate.of(year, 12, 31);
+    if (positionDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
+        positionDate = positionDate.minusDays(1);
+    }
+    if (positionDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        positionDate = positionDate.minusDays(2);
+    }
+    String ggi = random.nextObject(String.class);
+    String country = padUser.getCountry();
+    List<Holiday> holidays = random.objects(Holiday.class, 5).collect(toList());
+    List<BrokerPositionInformationEntity> entities = random.objects(BrokerPositionInformationEntity.class, 5).collect(Collectors.toList());
+    List<BrokerPositionInformation> modelList = mapper.toModels(entities);
+    
+    // Set consistent account numbers and broker codes for testing
+    String accountNumber1 = "ACC001";
+    String brokerCode1 = "BRK001";
+    String accountNumber2 = "ACC002";
+    String brokerCode2 = "BRK002";
+    
+    // Set these values in the model objects
+    modelList.get(0).setAccountNumber(accountNumber1);
+    modelList.get(0).setBrokerCode(brokerCode1);
+    modelList.get(1).setAccountNumber(accountNumber2);
+    modelList.get(1).setBrokerCode(brokerCode2);
+    
+    // Create test AccountInfo objects
+    AccountInfo regularAccount = mock(AccountInfo.class);
+    when(regularAccount.getType()).thenReturn("REGULAR_ACCOUNT");
+    when(regularAccount.getNumber()).thenReturn(accountNumber1);
+    when(regularAccount.getBrokerCode()).thenReturn(brokerCode1);
+    
+    AccountInfo managedAccount = mock(AccountInfo.class);
+    when(managedAccount.getType()).thenReturn("MANAGED_ACCOUNT");
+    when(managedAccount.getNumber()).thenReturn(accountNumber2);
+    when(managedAccount.getBrokerCode()).thenReturn(brokerCode2);
+    
+    // Mock behavior of the adjusted holidays method to return the test date
+    LocalDate adjustedDate = positionDate;
+    
+    // Setup mocks
+    when(holidayClientRepository.getAllHolidaysByCountry(country)).thenReturn(holidays);
+    doReturn(adjustedDate).when(repository).adjustForHolidays(positionDate, holidays);
+    when(repository.findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate)).thenReturn(entities);
+    when(mapper.toModels(entities)).thenReturn(modelList);
+    
+    // Mock account info repository responses
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(accountNumber1, brokerCode1))
+        .thenReturn(Optional.of(regularAccount));
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(accountNumber2, brokerCode2))
+        .thenReturn(Optional.of(managedAccount));
+    
+    // Create expected result - without the managed account
+    List<BrokerPositionInformation> expectedResult = new ArrayList<>(modelList);
+    expectedResult.remove(1); // Remove the managed account
+    
+    // When
+    List<BrokerPositionInformation> output = repository.getBrokerPositionsForAnnualHoldings(ggi, year, country);
+    
+    // Then
+    assertThat(output).hasSize(expectedResult.size());
+    assertThat(output).doesNotContain(modelList.get(1)); // Should not contain managed account
+    
+    // Verify method calls
+    verify(holidayClientRepository).getAllHolidaysByCountry(country);
+    verify(repository).findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate);
+    verify(accountInfoClientRepository).searchByAccountNumberAndBrokerCode(accountNumber1, brokerCode1);
+    verify(accountInfoClientRepository).searchByAccountNumberAndBrokerCode(accountNumber2, brokerCode2);
+}
