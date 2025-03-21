@@ -1,0 +1,36 @@
+@Override
+public List<BrokerPositionInformation> getBrokerPositionsForAnnualHoldings(String ggi, Integer year, String country) {
+    LocalDate positionDate = LocalDate.of(year, 12, 31);
+    List<Holiday> holidays = holidayClientRepository.getAllHolidaysByCountry(country);
+    positionDate = adjustForHolidays(positionDate, holidays);
+
+    log.info("The Parsed positionDate is :{}", positionDate);
+    List<BrokerPositionInformationEntity> brokerFromRepo = repository.findBrokerPositionByGgiAndPositionDate(ggi, positionDate);
+    List<BrokerPositionInformation> brokerPositionInformationList = mapper.toModels(brokerFromRepo);
+    parseQuantity(brokerPositionInformationList);
+
+    Set<Map.Entry<String, String>> uniqueAccounts = new HashSet<>();
+    brokerPositionInformationList.forEach(
+            x -> uniqueAccounts.add(new AbstractMap.SimpleEntry<>(x.getAccountNumber(), x.getBrokerCode()))
+    );
+
+    List<AccountInfo> accountInfos = new ArrayList<>();
+    uniqueAccounts.forEach(
+            x -> {
+                try {
+                    Optional<AccountInfo> accountInfoOpt = accountInfoClientRepository.searchByAccountNumberAndBrokerCode(x.getKey(), x.getValue());
+                    if (accountInfoOpt.isPresent()) {
+                        accountInfos.add(accountInfoOpt.get());
+                    } else {
+                        log.info("Account not found for account number: {} and broker code: {}", x.getKey(), x.getValue());
+                    }
+                } catch (Exception e) {
+                    log.error("Error fetching account for account number: {} and broker code: {}: {}", 
+                              x.getKey(), x.getValue(), e.getMessage());
+                }
+            }
+    );
+
+    // The rest of your code...
+    return brokerPositionInformationList;
+}
