@@ -1,0 +1,55 @@
+@Override
+public List<BrokerPositionInformation> getBrokerPositionsForAnnualHoldings(String ggi, Integer year, String country) {
+    // Calculate position date with holiday adjustment
+    LocalDate positionDate = adjustForHolidays(
+        LocalDate.of(year, 12, 31),
+        holidayClientRepository.getAllHolidaysByCountry(country)
+    );
+    
+    log.info("The Parsed positionDate is :{}", positionDate);
+    
+    // Fetch and transform broker position data
+    List<BrokerPositionInformation> brokerPositionInformationList = mapper.toModels(
+        repository.findBrokerPositionByGgiAndPositionDate(ggi, positionDate)
+    );
+    parseQuantity(brokerPositionInformationList);
+    
+    if (brokerPositionInformationList.isEmpty()) {
+        return Collections.emptyList();
+    }
+    
+    // Collect unique account/broker pairs
+    Map<String, Set<String>> accountBrokerMap = brokerPositionInformationList.stream()
+        .collect(Collectors.groupingBy(
+            BrokerPositionInformation::getAccountNumber,
+            Collectors.mapping(BrokerPositionInformation::getBrokerCode, Collectors.toSet())
+        ));
+    
+    // Create set to store managed account/broker pairs
+    Set<Map.Entry<String, String>> managedAccounts = new HashSet<>();
+    
+    // Check each unique account/broker pair
+    accountBrokerMap.forEach((accountNumber, brokerCodes) -> {
+        brokerCodes.forEach(brokerCode -> {
+            try {
+                accountInfoClientRepository.searchByAccountNumberAndBrokerCode(accountNumber, brokerCode)
+                    .filter(accountInfo -> "MANAGED_ACCOUNT".equals(accountInfo.getType()))
+                    .ifPresent(accountInfo -> 
+                        managedAccounts.add(new AbstractMap.SimpleEntry<>(accountInfo.getNumber(), accountInfo.getBrokerCode()))
+                    );
+            } catch (Exception e) {
+                log.error("Error checking account {}/{}: {}", accountNumber, brokerCode, e.getMessage());
+            }
+        });
+    });
+    
+    // If we found managed accounts, filter them out
+    if (!managedAccounts.isEmpty()) {
+        log.info("Removing {} managed accounts from broker positions", managedAccounts.size());
+        brokerPositionInformationList.removeIf(position -> 
+            managedAccounts.contains(new AbstractMap.SimpleEntry<>(position.getAccountNumber(), position.getBrokerCode()))
+        );
+    }
+    
+    return brokerPositionInformationList;
+}
