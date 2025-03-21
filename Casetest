@@ -1,0 +1,68 @@
+@Test
+public void shouldGetBrokerPositionsForAnnualHoldings() {
+    // Given
+    int year = 1000 * random.nextInt(5) + 2000;
+    String ggi = random.nextObject(String.class);
+    String country = padUser.getCountry();
+    
+    // Create position date and adjust for weekends
+    LocalDate positionDate = LocalDate.of(year, 12, 31);
+    if (positionDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
+        positionDate = positionDate.minusDays(1);
+    }
+    if (positionDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        positionDate = positionDate.minusDays(2);
+    }
+    
+    // Create test data
+    List<Holiday> holidays = random.objects(Holiday.class, 5).collect(toList());
+    List<BrokerPositionInformationEntity> entities = random.objects(BrokerPositionInformationEntity.class, 5).collect(Collectors.toList());
+    entities.get(0).setQuantity(String.valueOf(random.nextDouble()));
+    
+    List<BrokerPositionInformation> brokerModels = mapper.toModels(entities);
+    
+    // Create account info test data
+    String accountNumber = brokerModels.get(0).getAccountNumber();
+    String brokerCode = brokerModels.get(0).getBrokerCode();
+    
+    AccountInfo regularAccount = random.nextObject(AccountInfo.class);
+    regularAccount.setType("REGULAR_ACCOUNT");
+    regularAccount.setNumber(accountNumber);
+    regularAccount.setBrokerCode(brokerCode);
+    
+    String managedAccountNumber = brokerModels.get(1).getAccountNumber();
+    String managedBrokerCode = brokerModels.get(1).getBrokerCode();
+    
+    AccountInfo managedAccount = random.nextObject(AccountInfo.class);
+    managedAccount.setType("MANAGED_ACCOUNT");
+    managedAccount.setNumber(managedAccountNumber);
+    managedAccount.setBrokerCode(managedBrokerCode);
+    
+    // Setup mocks
+    when(holidayClientRepository.getAllHolidaysByCountry(country)).thenReturn(holidays);
+    when(repository.findBrokerPositionByGgiAndPositionDate(ggi, positionDate)).thenReturn(entities);
+    
+    // Mock the account info repository responses
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(accountNumber, brokerCode))
+        .thenReturn(Optional.of(regularAccount));
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(managedAccountNumber, managedBrokerCode))
+        .thenReturn(Optional.of(managedAccount));
+    
+    // For any other account number + broker code combinations, return empty
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(anyString(), anyString()))
+        .thenReturn(Optional.empty());
+    
+    // Call the method under test
+    List<BrokerPositionInformation> result = service.getBrokerPositionsForAnnualHoldings(ggi, year, country);
+    
+    // Then
+    // Verify that the managed account position is removed
+    assertThat(result).doesNotContain(brokerModels.get(1));
+    
+    // Verify that other positions are still present
+    assertThat(result).contains(brokerModels.get(0));
+    
+    // Verify method calls
+    verify(holidayClientRepository).getAllHolidaysByCountry(country);
+    verify(repository).findBrokerPositionByGgiAndPositionDate(ggi, positionDate);
+}
