@@ -1,0 +1,111 @@
+@Test
+public void shouldFindBrokerFeedPositionInformationForAnnualReport() throws Exception {
+    // Given
+    int year = 1000 * random.nextInt(5) + 2000;
+    LocalDate positionDate = LocalDate.of(year, 12, 31);
+    if (positionDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
+        positionDate = positionDate.minusDays(1);
+    }
+    if (positionDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        positionDate = positionDate.minusDays(2);
+    }
+    String ggi = random.nextObject(String.class);
+    String country = padUser.getCountry();
+    
+    // Create the holidays list
+    List<Holiday> holidays = random.objects(Holiday.class, 5).collect(toList());
+    
+    // Create test entities with consistent account numbers and broker codes
+    List<BrokerPositionInformationEntity> entities = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+        BrokerPositionInformationEntity entity = random.nextObject(BrokerPositionInformationEntity.class);
+        
+        // Use setter methods or reflection to set account and broker code
+        try {
+            Field accountField = findField(entity.getClass(), "accountNumber");
+            Field brokerField = findField(entity.getClass(), "brokerCode");
+            
+            accountField.setAccessible(true);
+            brokerField.setAccessible(true);
+            
+            accountField.set(entity, "ACC00" + i);
+            brokerField.set(entity, "BRK00" + i);
+        } catch (Exception e) {
+            // If reflection fails, try with setters if available
+            // entity.setAccountNumber("ACC00" + i);
+            // entity.setBrokerCode("BRK00" + i);
+        }
+        
+        entities.add(entity);
+    }
+    
+    // Create model list (mock the mapper response)
+    List<BrokerPositionInformation> modelList = new ArrayList<>();
+    for (int i = 0; i < entities.size(); i++) {
+        BrokerPositionInformation model = mock(BrokerPositionInformation.class);
+        when(model.getAccountNumber()).thenReturn("ACC00" + i);
+        when(model.getBrokerCode()).thenReturn("BRK00" + i);
+        modelList.add(model);
+    }
+    
+    // Create test AccountInfo objects
+    AccountInfo regularAccount = mock(AccountInfo.class);
+    when(regularAccount.getType()).thenReturn("REGULAR_ACCOUNT");
+    when(regularAccount.getNumber()).thenReturn("ACC000");
+    when(regularAccount.getBrokerCode()).thenReturn("BRK000");
+    
+    AccountInfo managedAccount = mock(AccountInfo.class);
+    when(managedAccount.getType()).thenReturn("MANAGED_ACCOUNT");
+    when(managedAccount.getNumber()).thenReturn("ACC001");
+    when(managedAccount.getBrokerCode()).thenReturn("BRK001");
+    
+    // Use a spy on the repository to allow mocking specific methods while testing others
+    BrokerPositionInformationRepository repoSpy = spy(repository);
+    
+    // Setup mock behavior
+    LocalDate adjustedDate = positionDate.minusDays(1); // Assume holidays adjustment moves date back by 1 day
+    doReturn(adjustedDate).when(repoSpy).adjustForHolidays(any(LocalDate.class), anyList());
+    
+    when(holidayClientRepository.getAllHolidaysByCountry(country)).thenReturn(holidays);
+    when(repoSpy.findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate)).thenReturn(entities);
+    when(mapper.toModels(entities)).thenReturn(modelList);
+    
+    // Mock account info repository responses
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode("ACC000", "BRK000"))
+        .thenReturn(Optional.of(regularAccount));
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode("ACC001", "BRK001"))
+        .thenReturn(Optional.of(managedAccount));
+    when(accountInfoClientRepository.searchByAccountNumberAndBrokerCode(anyString(), anyString()))
+        .thenReturn(Optional.empty());
+    
+    // When
+    List<BrokerPositionInformation> output = repoSpy.getBrokerPositionsForAnnualHoldings(ggi, year, country);
+    
+    // Then
+    // Verify repository methods were called
+    verify(repoSpy).adjustForHolidays(any(LocalDate.class), eq(holidays));
+    verify(repoSpy).findBrokerPositionByGgiAndPositionDate(ggi, adjustedDate);
+    
+    // Verify the managed account was filtered out
+    boolean hasManagedAccount = output.stream()
+        .anyMatch(p -> "ACC001".equals(p.getAccountNumber()) && "BRK001".equals(p.getBrokerCode()));
+    assertThat(hasManagedAccount).isFalse();
+    
+    // Verify regular account remains
+    boolean hasRegularAccount = output.stream()
+        .anyMatch(p -> "ACC000".equals(p.getAccountNumber()) && "BRK000".equals(p.getBrokerCode()));
+    assertThat(hasRegularAccount).isTrue();
+}
+
+// Helper method to find a field in a class or its superclasses
+private Field findField(Class<?> clazz, String fieldName) {
+    Class<?> currentClass = clazz;
+    while (currentClass != null) {
+        try {
+            return currentClass.getDeclaredField(fieldName);
+        } catch (NoSuchFieldException e) {
+            currentClass = currentClass.getSuperclass();
+        }
+    }
+    throw new RuntimeException("Field " + fieldName + " not found in " + clazz.getName());
+}
